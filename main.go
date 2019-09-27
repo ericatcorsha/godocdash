@@ -204,6 +204,11 @@ func runGodoc() (cmd *exec.Cmd, host string, err error) {
 			break
 		}
 	}
+	// TODO: detect if scan is complete
+	err = waitForGodocScan(host)
+	if err != nil {
+		return
+	}
 	return
 }
 
@@ -456,5 +461,36 @@ func getDocumentPath(packageName string) string {
 func printf(format string, a ...interface{}) {
 	if !silent {
 		fmt.Printf(format, a...)
+	}
+}
+func waitForGodocScan(host string) error {
+	var ready bool
+	ticker := time.NewTicker(1 * time.Second)
+	timeout := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		ready = true
+		doc, err := goquery.NewDocument(host + "/pkg/")
+		if err != nil {
+			return err
+		}
+		doc.Find("p span.alert").EachWithBreak(func(index int, item *goquery.Selection) bool {
+			fmt.Println(item.Text())
+			if strings.Contains(item.Text(), "Please retry") {
+				ready = false
+				return true
+			}
+			return false
+		})
+
+		select {
+		case <-ticker.C:
+			if ready {
+				return nil
+			}
+		case <-timeout.C:
+			return errors.New("Timeout waiting for godoc to become ready")
+		}
 	}
 }
